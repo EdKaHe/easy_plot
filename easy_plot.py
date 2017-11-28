@@ -7,15 +7,20 @@ Created on Sun Nov 26 16:01:02 2017
 
 from bokeh.layouts import layout
 from bokeh.models import PanTool, BoxZoomTool, BoxSelectTool, ResetTool, WheelZoomTool, SaveTool, TapTool, ColumnDataSource
-from bokeh.models.widgets import DataTable, TableColumn, Button, Panel, Tabs, Dropdown, CheckboxGroup, Slider, Select
+from bokeh.models.widgets import DataTable, TableColumn, Button, Panel, Tabs, Dropdown, Slider, Select, TextInput
 from bokeh.plotting import figure
 from bokeh.io import curdoc
 import pandas as pd
+import xlrd
 
 ####################################
 #import data from csv as dataframe#
 ##################################
-data=pd.read_csv('test.csv', sep=';')
+filepath='test.xlsx'
+try:
+    data=pd.read_excel(filepath, sep=';')
+except xlrd.XLRDError:
+    data=pd.read_csv(filepath, sep=';')
 #extraxt the columns as list
 columns=list(data.columns.values)
 #convert pandas dataframe to bokeh columndatasource
@@ -29,14 +34,9 @@ source_table=ColumnDataSource(data=data)
 #read the saved settings
 settings=pd.read_json(r'./settings.JSON', typ='series')[0]
 #set all initial values
-dict_linedash=dict(solid=[1],dashed=[8,8],dotted=[2,6])#required to convert string to array
+dict_linedash=dict(none=[], solid=[1],dashed=[8,8],dotted=[2,6])#required to convert string to array
 __marker=settings['marker']
 __linedash=settings['linedash']
-__linevis_bool=settings['linevis_bool']
-if __linevis_bool=='True':
-    __linevis=[0]
-elif __linevis_bool=='False':
-    __linevis=[]
 __linealpha=float(settings['linealpha'])
 __linecolor=settings['linecolor']
 __linewidth=int(settings['linewidth'])
@@ -80,8 +80,8 @@ def update():
 #######################
 def update_plot(attr, old, new):
     #change x and y data
-    fig.xaxis.axis_label=select_xdata.value
-    fig.yaxis.axis_label=select_ydata.value
+    fig_one.xaxis.axis_label=select_xdata.value
+    fig_one.yaxis.axis_label=select_ydata.value
     source_plot.data=dict(x=source_table.data[select_xdata.value],
                      y=source_table.data[select_ydata.value])
     
@@ -102,22 +102,17 @@ def update_plot(attr, old, new):
             renderer.glyph.size=slider_size.value
         
     #add or hide line
-    if checkbox_addline.active:
-        renderers['line'].visible=True        
+    if dropdown_linedash.value=='none':
+        renderers['line'].visible=False       
     else:
-        renderers['line'].visible=False
+        renderers['line'].visible=True
        
 ############################
 #save the current settings#
 ##########################
 def save_settings():
-    if checkbox_addline.active:
-        linevis_bool='True'
-    else:
-        linevis_bool='False'
     settings=dict(marker=[dropdown_marker.value],
                   linedash=[dropdown_linedash.value],
-                  linevis_bool=[linevis_bool],
                   linecolor=[dropdown_linecolor.value],
                   linealpha=[slider_linealpha.value],
                   linewidth=[slider_linewidth.value],
@@ -144,10 +139,10 @@ def reset_settings():
             renderer.glyph.size=__size
             renderer.glyph.fill_color=__fillcolor
     renderers[__marker].visible=True
-    if __linevis:
-        renderers['line'].visible=True        
+    if __linedash=='none':
+        renderers['line'].visible=False        
     else:
-        renderers['line'].visible=False
+        renderers['line'].visible=True
         
     #reset widget properies
     slider_fillalpha.value=__fillalpha
@@ -158,52 +153,126 @@ def reset_settings():
     dropdown_linecolor.value=__linecolor
     dropdown_marker.value=__marker
     dropdown_linedash.value=__linedash
-    if __linevis:
-        checkbox_addline.active=[0]        
-    else:
-        checkbox_addline.active=[]
+
+#create function that adds data from left plot to the right permanently 
+def add_plot():
+    #add marker to plot
+    new_data=source_plot.data
+    renderer=getattr(fig_all, dropdown_marker.value)(x=new_data['x'], y=new_data['y'], legend=select_ydata.value, muted_color=dropdown_fillcolor.value, muted_alpha=slider_fillalpha.value*0.1)
+    #change marker properties
+    renderer.glyph.line_width=slider_linewidth.value
+    renderer.glyph.line_color=dropdown_linecolor.value
+    renderer.glyph.line_alpha=slider_linealpha.value
+    renderer.glyph.size=slider_size.value
+    renderer.glyph.fill_color=dropdown_fillcolor.value
+    renderer.glyph.fill_alpha=slider_fillalpha.value
+    
+    #change line properties if line is visible
+    if dropdown_linedash.value!='none':
+        renderer=getattr(fig_all, 'line')(x=new_data['x'], y=new_data['y'], legend=select_ydata.value, muted_color=dropdown_linecolor.value, muted_alpha=slider_linealpha.value*0.1)
+        renderer.glyph.line_width=slider_linewidth.value
+        renderer.glyph.line_color=dropdown_linecolor.value
+        renderer.glyph.line_alpha=slider_linealpha.value
+    
+    #change axis labels
+    fig_all.xaxis.axis_label=select_xdata.value
+    fig_all.yaxis.axis_label=select_ydata.value
+    
+    #update texboxes only if user didn't create labels
+    if not user_labels:
+        text_xlabel.value=select_xdata.value
+        text_ylabel.value=select_ydata.value
         
+    fig_all.legend.location = "top_left"
+    fig_all.legend.click_policy="mute"
+
+#create function that changes axis labels after user input
+def change_label(attr, old, new):
+    #set user input true so that it is not changed automatically anymore
+    global user_labels
+    user_labels=True
+    
+    #change the axis labels
+    fig_all.xaxis.axis_label=text_xlabel.value
+    fig_all.yaxis.axis_label=text_ylabel.value
+
 ################
 #create figure#
 ##############
-fig = figure(toolbar_location='left', toolbar_sticky=False, tools=[PanTool(), BoxZoomTool(), WheelZoomTool(), BoxSelectTool(), TapTool(), ResetTool(), SaveTool()],output_backend='webgl')
-fig.plot_width = 900
-fig.plot_height = 600
-fig.toolbar.logo = None
+fig_one = figure(toolbar_location='right', toolbar_sticky=False, tools=[PanTool(), BoxZoomTool(), WheelZoomTool(), BoxSelectTool(), TapTool(), ResetTool(), SaveTool()],output_backend='webgl')
+fig_one.plot_width = 600
+fig_one.plot_height = 300
+fig_one.toolbar.logo = None
+
+fig_all = figure(toolbar_location='right', toolbar_sticky=False, tools=[PanTool(), BoxZoomTool(), WheelZoomTool(), BoxSelectTool(), TapTool(), ResetTool(), SaveTool()],output_backend='webgl')
+fig_all.plot_width = 800
+fig_all.plot_height = 600
+fig_all.toolbar.logo = None
 
 ############################################################################
 #create all selectable renderers and set the circle and line renderer true#
 ##########################################################################
-renderers = {rn: getattr(fig, rn)(x='x', y='y', source=source_plot,
+renderers = {rn: getattr(fig_one, rn)(x='x', y='y', source=source_plot,
                                    **extra, visible=False)
              for rn, extra in [('line', dict(line_width=__linewidth, line_color=__linecolor, line_alpha=__linealpha, line_dash=dict_linedash[__linedash])),
                                ('circle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
                                ('diamond', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
-                               ('cross', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
                                ('square', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
-                               ('triangle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),]}
+                               ('triangle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('asterisk', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('cross', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('x', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash]))]}
 renderers[__marker].visible=True
-if __linevis:
-    renderers['line'].visible=True
-else:
+if __linedash=='none':
     renderers['line'].visible=False
+else:
+    renderers['line'].visible=True
 
 #############
 #style axis#
 ###########
-fig.axis.minor_tick_line_color='black'
-fig.axis.minor_tick_in=-6
-fig.xaxis.axis_label=columns[0]
-fig.yaxis.axis_label=columns[1]
-fig.axis.axis_label_text_color=(0.7,0.7,0.7)
-fig.axis.major_label_text_color=(0.7,0.7,0.7)
-fig.axis.axis_label_text_font = 'helvetica'
-fig.xaxis.axis_label_text_font_size = '16pt'
-fig.yaxis.axis_label_text_font_size = '16pt'
-fig.axis.axis_label_text_font_style = 'normal'
-fig.axis.major_label_text_font = 'helvetica'
-fig.axis.major_label_text_font_size = '10pt'
-fig.axis.major_label_text_font_style = 'normal'
+fig_one.axis.minor_tick_line_color='black'
+fig_one.axis.minor_tick_in=-6
+fig_one.xaxis.axis_label=columns[0]
+fig_one.yaxis.axis_label=columns[1]
+fig_one.axis.axis_label_text_color=(0.7,0.7,0.7)
+fig_one.axis.major_label_text_color=(0.7,0.7,0.7)
+fig_one.axis.axis_label_text_font = 'helvetica'
+fig_one.xaxis.axis_label_text_font_size = '12pt'
+fig_one.yaxis.axis_label_text_font_size = '12pt'
+fig_one.axis.axis_label_text_font_style = 'normal'
+fig_one.axis.major_label_text_font = 'helvetica'
+fig_one.axis.major_label_text_font_size = '10pt'
+fig_one.axis.major_label_text_font_style = 'normal'
+
+fig_all.axis.minor_tick_line_color='black'
+fig_all.axis.minor_tick_in=-6
+fig_all.xaxis.axis_label=''
+fig_all.yaxis.axis_label=''
+fig_all.axis.axis_label_text_color=(0.7,0.7,0.7)
+fig_all.axis.major_label_text_color=(0.7,0.7,0.7)
+fig_all.axis.axis_label_text_font = 'helvetica'
+fig_all.xaxis.axis_label_text_font_size = '16pt'
+fig_all.yaxis.axis_label_text_font_size = '16pt'
+fig_all.axis.axis_label_text_font_style = 'normal'
+fig_all.axis.major_label_text_font = 'helvetica'
+fig_all.axis.major_label_text_font_size = '10pt'
+fig_all.axis.major_label_text_font_style = 'normal'
+
+##################
+#style the title#
+################
+fig_one.title.text='Preview Plot'
+fig_one.title.text_color=(0.7,0.7,0.7)
+fig_one.title.text_font='helvetica'
+fig_one.title.text_font_size='14pt'
+fig_one.title.align='right'
+
+fig_all.title.text='Overview Plot'
+fig_all.title.text_color=(0.7,0.7,0.7)
+fig_all.title.text_font='helvetica'
+fig_all.title.text_font_size='20pt'
+fig_all.title.align='right'
 
 #####################
 #create all widgets#
@@ -216,19 +285,15 @@ select_xdata.on_change('value', update_plot)
 select_ydata.on_change('value', update_plot)
 
 #create marker dropdown
-menu = [('No renderer', None)]
+menu = [('None', 'none')]
 menu.extend((rn.capitalize(), rn) for rn in renderers if rn!='line')
 dropdown_marker = Dropdown(label=label_marker(__marker), menu=menu, value=__marker)
 dropdown_marker.on_change('value', update_plot)
 
 #create line dropdown
-menu = [('Solid', 'solid'),('Dashed', 'dashed'), ('Dotted', 'dotted')]
+menu = [('None', 'none'), ('Solid', 'solid'),('Dashed', 'dashed'), ('Dotted', 'dotted')]
 dropdown_linedash = Dropdown(label=label_linedash(__linedash), menu=menu, value=__linedash)
 dropdown_linedash.on_change('value', update_plot)
-
-#checkbox to hide and add line
-checkbox_addline = CheckboxGroup(labels=['Add line'], active=__linevis)
-checkbox_addline.on_change('active',update_plot)
 
 #slide to adjust line_alpha
 slider_linealpha = Slider(start=0, end=1, value=0.6, step=0.1, title='Line transparency')
@@ -266,12 +331,25 @@ button_save.on_click(save_settings)
 button_reset = Button(label="Reset settings", button_type="danger")
 button_reset.on_click(reset_settings)
 
+#create add plot button
+button_add = Button(label="Add to overview", button_type='success')
+button_add.on_click(add_plot)
+
+user_labels=False
+#create textinput for xlabel
+text_xlabel=TextInput(value='', title='x-label')
+text_xlabel.on_change('value',change_label)
+
+#create textinput for ylabel
+text_ylabel=TextInput(value='', title='y-label')
+text_ylabel.on_change('value',change_label)
+
 #create editable table widget
-columns = [TableColumn(field=column, title=column) for column in columns]
-table = DataTable(source=source_table, columns=columns, editable=True, width=1200, height=800)
+table_columns = [TableColumn(field=column, title=column) for column in columns]
+table = DataTable(source=source_table, columns=table_columns, editable=True, width=1200, height=800)
 
 #create tab layouts
-layout_plot=layout([[[[select_xdata, select_ydata], fig], [checkbox_addline, [dropdown_linedash, dropdown_marker], [slider_linealpha, slider_fillalpha], [dropdown_linecolor, dropdown_fillcolor], [slider_linewidth, slider_size], [button_reset, button_save]]]])
+layout_plot=layout([[[[button_reset, button_save], [dropdown_linedash, dropdown_marker], [slider_linealpha, slider_fillalpha], [dropdown_linecolor, dropdown_fillcolor], [slider_linewidth, slider_size], [select_xdata, select_ydata], fig_one, button_add], [fig_all, [text_xlabel, text_ylabel]]]])
 layout_table=layout([table])
 
 #create panels
