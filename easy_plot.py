@@ -12,6 +12,9 @@ from bokeh.plotting import figure
 from bokeh.io import curdoc
 import pandas as pd
 import xlrd
+from numpy import exp,log,log10,sin,sinc,sinh,cos,cosh,tan,tanh, nan
+from scipy import optimize
+from time import sleep
 
 ####################################
 #import data from csv as dataframe#
@@ -27,6 +30,8 @@ columns=list(data.columns.values)
 source_plot=ColumnDataSource(data=dict(x=data[columns[0]], 
                              y=data[columns[1]]))
 source_table=ColumnDataSource(data=data)
+source_fit=ColumnDataSource(data=dict(x=[0 for i in range(data.shape[0])], 
+                             y=[0 for i in range(data.shape[0])]))
 
 ########################################
 #read and set initial values from json#
@@ -73,7 +78,6 @@ def label_linecolor(item):
 def update():
     source_plot.data=dict(x=source_table.data[select_xdata.value],
                           y=source_table.data[select_ydata.value])
-    return
 
 #########################
 #change data as desired#
@@ -100,13 +104,56 @@ def update_plot(attr, old, new):
             renderer.glyph.fill_alpha=slider_fillalpha.value
             renderer.glyph.fill_color=dropdown_fillcolor.value
             renderer.glyph.size=slider_size.value
-        
+            
     #add or hide line
     if dropdown_linedash.value=='none':
-        renderers['line'].visible=False       
+        renderers['line'].visible=False
     else:
         renderers['line'].visible=True
-       
+        
+    #update fit figure
+    for renderer_name, renderer in renderers_data_fit.items():
+        renderer.visible=False
+        renderer.glyph.line_alpha=slider_linealpha.value
+        renderer.glyph.line_width=slider_linewidth.value
+        renderer.glyph.line_color=dropdown_linecolor.value
+        renderer.glyph.line_dash=dict_linedash[dropdown_linedash.value]
+        if renderer_name!='line':
+            renderer.glyph.fill_alpha=slider_fillalpha.value
+            renderer.glyph.size=slider_size.value
+            renderer.glyph.fill_color=dropdown_fillcolor.value
+    renderers_data_fit[dropdown_marker.value].visible=True
+    if dropdown_linedash.value=='none':
+        renderers_data_fit['line'].visible=False        
+    else:
+        renderers_data_fit['line'].visible=True
+
+########################
+#change fit as desired#
+#######################
+def update_fit(attr, old, new):  
+    #change marker type and properties
+    dropdown_marker_fit.label=label_marker(dropdown_marker_fit.value)
+    dropdown_fillcolor_fit.label=label_fillcolor(dropdown_fillcolor_fit.value)
+    dropdown_linecolor_fit.label=label_linecolor(dropdown_linecolor_fit.value)
+    dropdown_linedash_fit.label=label_linedash(dropdown_linedash_fit.value)
+    for renderer_name, renderer in renderers_model_fit.items():
+        renderer.visible=(renderer_name == dropdown_marker_fit.value)
+        renderer.glyph.line_alpha=slider_linealpha_fit.value
+        renderer.glyph.line_color=dropdown_linecolor_fit.value
+        renderer.glyph.line_width=slider_linewidth_fit.value
+        renderer.glyph.line_dash=dict_linedash[dropdown_linedash_fit.value]
+        if renderer_name!='line':
+            renderer.glyph.fill_alpha=slider_fillalpha_fit.value
+            renderer.glyph.fill_color=dropdown_fillcolor_fit.value
+            renderer.glyph.size=slider_size_fit.value
+            
+    #add or hide line
+    if dropdown_linedash_fit.value=='none':
+        renderers_model_fit['line'].visible=False
+    else:
+        renderers_model_fit['line'].visible=True
+        
 ############################
 #save the current settings#
 ##########################
@@ -195,6 +242,30 @@ def change_label(attr, old, new):
     #change the axis labels
     fig_all.xaxis.axis_label=text_xlabel.value
     fig_all.yaxis.axis_label=text_ylabel.value
+    
+#create function that fits data from function given as string
+def fit_data(attr, old, new):
+    global parameter
+    func=lambda x,a,b,c,d,e: eval(text_fit.value)
+    try:
+        parameter,_=optimize.curve_fit(func, source_plot.data['x'],source_plot.data['y'])
+    except RuntimeError:
+        tmp_str=text_fit.title
+        for i in range(5):
+            text_fit.title='Parameter not found!'
+            sleep(0.2)
+            text_fit.title=''
+            sleep(0.2)
+        text_fit.title=tmp_str
+        return
+    
+    x_data=source_plot.data['x']
+    y_data=func(source_plot.data['x'], *parameter)
+    source_fit.data=dict(x=x_data,y=y_data)    
+    
+###########################################################################################################################################
+###########################################################plot tab########################################################################
+###########################################################################################################################################
 
 ################
 #create figure#
@@ -274,9 +345,9 @@ fig_all.title.text_font='helvetica'
 fig_all.title.text_font_size='20pt'
 fig_all.title.align='right'
 
-#####################
-#create all widgets#
-###################
+##########################
+#create all plot widgets#
+########################
 #create data dropdown
 options=[column for column in columns]
 select_xdata = Select(title='x-data: ', options=options, value=columns[0])
@@ -299,7 +370,7 @@ dropdown_linedash.on_change('value', update_plot)
 slider_linealpha = Slider(start=0, end=1, value=0.6, step=0.1, title='Line transparency')
 slider_linealpha.on_change('value', update_plot)
 
-#slide to adjust line_alpha
+#slide to adjust fill_alpha
 slider_fillalpha = Slider(start=0, end=1, value=0.2, step=0.1, title='Marker transparency')
 slider_fillalpha.on_change('value', update_plot)
 
@@ -337,27 +408,157 @@ button_add.on_click(add_plot)
 
 user_labels=False
 #create textinput for xlabel
-text_xlabel=TextInput(value='', title='x-label')
+text_xlabel=TextInput(value='', title='x-label: ')
 text_xlabel.on_change('value',change_label)
 
 #create textinput for ylabel
-text_ylabel=TextInput(value='', title='y-label')
+text_ylabel=TextInput(value='', title='y-label: ')
 text_ylabel.on_change('value',change_label)
+
+###########################################################################################################################################
+###########################################################fit tab#########################################################################
+###########################################################################################################################################
+################
+#create figure#
+##############
+fig_fit = figure(toolbar_location='right', toolbar_sticky=False, tools=[PanTool(), BoxZoomTool(), WheelZoomTool(), BoxSelectTool(), TapTool(), ResetTool(), SaveTool()],output_backend='webgl')
+fig_fit.plot_width = 800
+fig_fit.plot_height = 600
+fig_fit.toolbar.logo = None
+
+#############
+#style axis#
+###########
+fig_fit.axis.minor_tick_line_color='black'
+fig_fit.axis.minor_tick_in=-6
+fig_fit.xaxis.axis_label=columns[0]
+fig_fit.yaxis.axis_label=columns[1]
+fig_fit.axis.axis_label_text_color=(0.7,0.7,0.7)
+fig_fit.axis.major_label_text_color=(0.7,0.7,0.7)
+fig_fit.axis.axis_label_text_font = 'helvetica'
+fig_fit.xaxis.axis_label_text_font_size = '12pt'
+fig_fit.yaxis.axis_label_text_font_size = '12pt'
+fig_fit.axis.axis_label_text_font_style = 'normal'
+fig_fit.axis.major_label_text_font = 'helvetica'
+fig_fit.axis.major_label_text_font_size = '10pt'
+fig_fit.axis.major_label_text_font_style = 'normal'
+
+############################################################################
+#create all selectable renderers and set the circle and line renderer true#
+##########################################################################
+#model data
+renderers_model_fit = {rn: getattr(fig_fit, rn)(x='x', y='y', source=source_fit,
+                                   **extra, visible=False)
+             for rn, extra in [('line', dict(line_width=__linewidth, line_color=__linecolor, line_alpha=__linealpha, line_dash=dict_linedash[__linedash])),
+                               ('circle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('diamond', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('square', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('triangle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('asterisk', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('cross', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('x', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash]))]}
+renderers_model_fit[__marker].visible=True
+if __linedash=='none':
+    renderers_model_fit['line'].visible=False
+else:
+    renderers_model_fit['line'].visible=True
+
+#real data
+renderers_data_fit = {rn: getattr(fig_fit, rn)(x='x', y='y', source=source_plot,
+                                   **extra, visible=False)
+             for rn, extra in [('line', dict(line_width=__linewidth, line_color=__linecolor, line_alpha=__linealpha, line_dash=dict_linedash[__linedash])),
+                               ('circle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('diamond', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('square', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('triangle', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('asterisk', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('cross', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash])),
+                               ('x', dict(size=__size, line_width=__linewidth, line_color=__linecolor, fill_color=__fillcolor, line_alpha=__linealpha, fill_alpha=__fillalpha, line_dash=dict_linedash[__linedash]))]}
+renderers_data_fit[__marker].visible=True
+if __linedash=='none':
+    renderers_data_fit['line'].visible=False
+else:
+    renderers_data_fit['line'].visible=True
+    
+#########################
+#create all fit widgets#
+#######################
+
+#create line dropdown
+menu = [('None', 'none'), ('Solid', 'solid'),('Dashed', 'dashed'), ('Dotted', 'dotted')]
+dropdown_linedash_fit = Dropdown(label=label_linedash(__linedash), menu=menu, value=__linedash)
+dropdown_linedash_fit.on_change('value', update_fit)
+
+#slide to adjust line_alpha
+slider_linealpha_fit = Slider(start=0, end=1, value=0.6, step=0.1, title='Line transparency')
+slider_linealpha_fit.on_change('value', update_fit)
+
+#create linecolor dropdown
+colors=['black', 'white', 'gray', 'whitesmoke', 'red', 'firebrick', 'pink', 'orange', 'yellow', 'green', 'olive', 'blue', 'navy']
+menu=[(color.capitalize(), color) for color in colors]
+dropdown_linecolor_fit = Dropdown(label=label_linecolor(__linecolor), menu=menu, value=__linecolor)
+dropdown_linecolor_fit.on_change('value', update_fit)
+
+#slide to adjust line width
+slider_linewidth_fit=Slider(start=0, end=10, value=__linewidth, step=1, title='Line width')
+slider_linewidth_fit.on_change('value', update_fit)
+
+#create marker dropdown
+menu = [('None', 'none')]
+menu.extend((rn.capitalize(), rn) for rn in renderers_model_fit if rn!='line')
+dropdown_marker_fit = Dropdown(label=label_marker(__marker), menu=menu, value=__marker)
+dropdown_marker_fit.on_change('value', update_fit)
+
+#slide to adjust fill_alpha
+slider_fillalpha_fit = Slider(start=0, end=1, value=0.2, step=0.1, title='Marker transparency')
+slider_fillalpha_fit.on_change('value', update_fit)
+
+#create fillcolor dropdown
+colors=['black', 'white', 'gray', 'whitesmoke', 'red', 'firebrick', 'pink', 'orange', 'yellow', 'green', 'olive', 'blue', 'navy']
+menu=[(color.capitalize(), color) for color in colors]
+dropdown_fillcolor_fit = Dropdown(label=label_fillcolor(__fillcolor), menu=menu, value=__fillcolor)
+dropdown_fillcolor_fit.on_change('value', update_fit)
+
+#slide to adjust marker size
+slider_size_fit=Slider(start=0, end=30, value=__size, step=1, title='Marker size')
+slider_size_fit.on_change('value', update_fit)
+
+##create save button
+#button_save_fit = Button(label="Save settings", button_type="success")
+#button_save_fit.on_click(save_fit_settings)
+#
+##create reset button
+#button_reset_fit = Button(label="Reset settings", button_type="danger")
+#button_reset_fit.on_click(reset_fit_settings)
+    
+#create textinput for fit function
+text_fit=TextInput(value='a*x**4+b*x**3+c*x**2+d*x+e', title='Fit function (Parameter a-e): ')
+text_fit.on_change('value',fit_data)
+
+###########################################################################################################################################
+###########################################################table tab#######################################################################
+###########################################################################################################################################
 
 #create editable table widget
 table_columns = [TableColumn(field=column, title=column) for column in columns]
 table = DataTable(source=source_table, columns=table_columns, editable=True, width=1200, height=800)
 
+###########################################################################################################################################
+###########################################################create layouts##################################################################
+###########################################################################################################################################
+
 #create tab layouts
 layout_plot=layout([[[[button_reset, button_save], [dropdown_linedash, dropdown_marker], [slider_linealpha, slider_fillalpha], [dropdown_linecolor, dropdown_fillcolor], [slider_linewidth, slider_size], [select_xdata, select_ydata], fig_one, button_add], [fig_all, [text_xlabel, text_ylabel]]]])
+layout_fit=layout([[[text_fit, [dropdown_linedash_fit, dropdown_marker_fit], [slider_linealpha_fit, slider_fillalpha_fit], [dropdown_linecolor_fit, dropdown_fillcolor_fit], [slider_linewidth_fit, slider_size_fit]], [fig_fit]]])
 layout_table=layout([table])
 
 #create panels
 tab_plot=Panel(child=layout_plot, title='Plot')
+tab_fit=Panel(child=layout_fit, title='Fit')
 tab_table=Panel(child=layout_table, title='Table')
 
 #create the tabs from panels
-tabs=Tabs(tabs=[tab_plot, tab_table])
+tabs=Tabs(tabs=[tab_plot, tab_fit, tab_table])
 
 ############################################
 #create the layout with figure and widgets#
