@@ -323,7 +323,14 @@ def change_label(attr, old, new):
 #create function that fits data from function given as string
 def fit_data():
     global parameter
-    func=lambda x,a,b,c,d,e: eval(text_fit.value)
+    
+    #change "^" in function string to interpretable **
+    function_string=text_fit.value
+    if '^' in function_string:
+        function_string=function_string.replace('^', '**')
+    
+    #define fit function from text input
+    func=lambda x,a,b,c,d,e: eval(function_string)
     
     #get indices of selected points
     indices=source_plot.selected['1d']['indices']
