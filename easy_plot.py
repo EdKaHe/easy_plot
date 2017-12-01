@@ -32,7 +32,7 @@ source_plot=ColumnDataSource(data=dict(x=data[columns[0]],
 source_table=ColumnDataSource(data=data)
 source_fit=ColumnDataSource(data=dict(x=[0 for i in range(data.shape[0])], 
                              y=[0 for i in range(data.shape[0])]))
-print(data)
+
 ########################################
 #read and set initial values from json#
 ######################################
@@ -256,7 +256,7 @@ def fix_plot():
         plot_count+=1
     except NameError:
         plot_count=0
-    legend_plot='Plot {}'.format(plot_count)
+    legend_plot=select_ydata.value
     if dropdown_marker.value!='none':
         renderer_fixed=getattr(fig_plot, dropdown_marker.value)(x=new_data_plot['x'], y=new_data_plot['y'], legend=legend_plot, muted_color=dropdown_fillcolor.value, muted_alpha=slider_fillalpha.value*0.1)
         #change marker properties
