@@ -19,7 +19,7 @@ from time import sleep
 ####################################
 #import data from csv as dataframe#
 ##################################
-filepath='171124_Omicron_Luxx_75mW.csv'
+filepath='Omicron_Luxx+.xlsx'
 try:
     data=pd.read_excel(filepath, sep=';')
 except xlrd.XLRDError:
@@ -32,7 +32,7 @@ source_plot=ColumnDataSource(data=dict(x=data[columns[0]],
 source_table=ColumnDataSource(data=data)
 source_fit=ColumnDataSource(data=dict(x=[0 for i in range(data.shape[0])], 
                              y=[0 for i in range(data.shape[0])]))
-
+print(data)
 ########################################
 #read and set initial values from json#
 ######################################
